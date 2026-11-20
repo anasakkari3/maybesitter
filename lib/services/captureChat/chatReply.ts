@@ -21,8 +21,9 @@
 import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { localTimeSpecFor, statesClock } from '../../../src/extraction/timeLexicon';
+import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
 import { contentWords, namesOnlyItem, sameWord } from '../captureBoundary/chatEvidence';
-import { groundedReply, type ReplyGrounds } from './chatWhy';
+import { cardWhen, groundedReply, type ReplyGrounds } from './chatWhy';
 
 export type ChatLanguage = 'ar' | 'en' | 'he';
 
@@ -179,7 +180,7 @@ const TIME_UNCLEAR: Readonly<Record<ChatLanguage, { lead: string; question: stri
   he: { lead: 'השעה לא הייתה ברורה.', question: 'באיזו שעה זה צריך להיות?' },
 };
 
-type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'itemId' | 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
+type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'itemId' | 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated' | 'endTime'>>;
 type ProposalLike = { items: readonly ProposalItemLike[]; seeds?: readonly unknown[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
 
 /** The exact question suffix a reply asks about one proposal item. */
@@ -462,10 +463,89 @@ function alignedWithProposal(text: string, context: TemplateContext): string {
   return kept.join(' ');
 }
 
+/** A card's time said from the card itself: «"{title}" {when}.» (`cardWhen`). */
+const CARD_CLOCK: Readonly<Record<ChatLanguage, string>> = {
+  ar: '«{title}» {when}.',
+  en: '"{title}" is {when}.',
+  he: '"{title}" {when}.',
+};
+/** The most card lines one reply gets in place of wrong clocks. */
+const MAX_CARD_CLOCK_LINES = 3;
+
+/** A clock as it is compared: the hour on a twelve-hour dial, and the minute. */
+const dialKey = (hour: number, minute: number): string => `${hour % 12}:${minute}`;
+
+function addInstantKey(keys: Set<string>, instant: string | null | undefined, timezone: string): void {
+  if (!instant) return;
+  const local = localTimeSpecFor(new Date(instant), timezone);
+  if (!local) return;
+  const [hour, minute] = local.time.split(':').map(Number) as [number, number];
+  keys.add(dialKey(hour, minute));
+}
+
+/**
+ * The reply with every clock it states on the list (QA v3 staging,
+ * 2026-11-20): «بعد ساعتين لازم آخد الدوا» at 03:39 in Jerusalem got a card at
+ * 05:40 and the reply «الساعة 3:39 الصبح» — the model's own hour, written on
+ * another clock, and nothing compared the two.
+ *
+ * A sentence that states a clock — not a question: an offer or an ask is not
+ * a statement about a card — is kept when every clock in it is one the list
+ * holds: a card's start or end, a clash's, or one the person said themselves.
+ * Otherwise it goes, and in its place the card it was about is said from the
+ * card, on the person's clock (`cardWhen`): the card it names, or the only
+ * card with a time. Compared on a twelve-hour dial, as replies say the hour
+ * («5:40 الصبح» is 05:40).
+ */
+function withCardClocks(text: string, context: TemplateContext): string {
+  const grounds = context.grounds;
+  const timezone = context.timezone ?? grounds?.timezone;
+  if (!grounds || !timezone) return text;
+  const items = context.proposal?.items ?? [];
+  const onTheList = new Set<string>();
+  for (const item of items) {
+    addInstantKey(onTheList, item.resolvedTime, timezone);
+    addInstantKey(onTheList, item.endTime, timezone);
+  }
+  for (const item of grounds.items) {
+    for (const conflict of item.conflicts ?? []) {
+      addInstantKey(onTheList, conflict.startsAt, timezone);
+      addInstantKey(onTheList, conflict.endsAt, timezone);
+    }
+  }
+  for (const turn of grounds.userTurns) {
+    for (const { hour, minute } of clockTimesIn(turn.slice(0, CHAT_REPLY_SCAN_LIMIT))) onTheList.add(dialKey(hour, minute));
+  }
+
+  const timed = items.filter((item) => item.resolvedTime && !item.needsClarification);
+  const said = new Set<ProposalItemLike>();
+  let replacedAt = -1;
+  const kept: string[] = [];
+  for (const sentence of sentencesOf(text)) {
+    const clocks = isQuestion(sentence) ? [] : clockTimesIn(sentence);
+    if (clocks.every(({ hour, minute }) => onTheList.has(dialKey(hour, minute)))) {
+      kept.push(sentence);
+      continue;
+    }
+    if (replacedAt < 0) replacedAt = kept.length;
+    const named = timed.filter((item) => contentWords(item.title).some((word) => contentWords(sentence).some((candidate) => sameWord(word, candidate))));
+    for (const item of named.length > 0 ? named : timed.length === 1 ? timed : []) said.add(item);
+  }
+  if (replacedAt < 0) return text;
+  const lines = Array.from(said).slice(0, MAX_CARD_CLOCK_LINES).flatMap((item) => {
+    const when = cardWhen(context.language, item.resolvedTime!, grounds.now, timezone);
+    if (!when) return [];
+    const title = item.title.length > TEMPLATE_TITLE_MAX ? `${item.title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : item.title;
+    return [CARD_CLOCK[context.language].replace('{title}', title).replace('{when}', when)];
+  });
+  return [...kept.slice(0, replacedAt), ...lines, ...kept.slice(replacedAt)].join(' ');
+}
+
 /**
  * The reply the person sees: the model's when it passes, brought into line
- * with the proposal (`alignedWithProposal`); with the missing question added
- * when that is all it lacks; the template otherwise.
+ * with the proposal (`alignedWithProposal`) and its clocks with the cards
+ * (`withCardClocks`); with the missing question added when that is all it
+ * lacks; the template otherwise.
  */
 export function safeChatReply(reply: unknown, context: TemplateContext): { reply: string; replaced: boolean; asked: CaptureChatAsked | null } {
   const checked = checkModelReply(reply, context);
@@ -475,7 +555,7 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
     return { ...safe, replaced: true };
   }
   const aligned = alignedWithProposal(reply.trim(), context).trim();
-  let text = context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned;
+  let text = withCardClocks(context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned, context).trim();
   if (!text) {
     const safe = withAskedSuffix(templateReply(context), context.language, context.proposal, false);
     return { ...safe, replaced: true };
