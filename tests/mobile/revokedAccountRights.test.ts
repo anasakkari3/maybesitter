@@ -63,6 +63,23 @@ async function revoked(name: string): Promise<string> {
   return uid;
 }
 
+/**
+ * The lock the old mobile «وقّف» left (before #873): the revoke and, in the
+ * same request, its audit line `revoked` / `revoke` — the trace that tells it
+ * apart from the operator's `scripts/revoke-user.ts`, which never wrote one.
+ */
+async function selfStopped(name: string, at = new Date()): Promise<string> {
+  const { createPilotAuditEvent } = await import('../../lib/pilot/closedPilotControls.ts');
+  const uid = uidFor(name);
+  await getOrCreateTrust(uid, new Date(at.getTime() - 1000).toISOString());
+  await applyTrustAction(uid, { type: 'revoke', at: at.toISOString() }, {
+    audit: createPilotAuditEvent({
+      version: 'v1', eventType: 'revoked', participantId: uid, occurredAt: at.toISOString(), outcome: 'recorded', reasonCode: 'revoke',
+    }),
+  });
+  return uid;
+}
+
 test('a revoked account can still export its data', async () => {
   begin();
   try {
@@ -181,7 +198,13 @@ async function lockedAfterAgreeing(name: string): Promise<string> {
   await getOrCreateTrust(uid, before.toISOString());
   await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION, at: before });
   await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: before });
-  await applyTrustAction(uid, { type: 'revoke', at: new Date(Date.now() - 1000).toISOString() });
+  const { createPilotAuditEvent } = await import('../../lib/pilot/closedPilotControls.ts');
+  const lockedAt = new Date(Date.now() - 1000).toISOString();
+  await applyTrustAction(uid, { type: 'revoke', at: lockedAt }, {
+    audit: createPilotAuditEvent({
+      version: 'v1', eventType: 'revoked', participantId: uid, occurredAt: lockedAt, outcome: 'recorded', reasonCode: 'revoke',
+    }),
+  });
   return uid;
 }
 
@@ -254,7 +277,7 @@ test('a deleted account is never brought back', async () => {
     assert.ok(after?.revokedAt, 'a deleted account had its revocation cleared');
 
     // And one swept by the real deletion is not re-created by a resume.
-    const swept = await revoked('SweptResume');
+    const swept = await selfStopped('SweptResume');
     const deleted = await accountDelete(authed(swept, '/api/mobile/account', {
       method: 'DELETE',
       body: JSON.stringify({ confirmation: 'delete-my-account' }),
@@ -272,8 +295,8 @@ test('a resume only ever reaches the caller\'s own account', async () => {
   begin();
   try {
     const { readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
-    const mine = await revoked('ResumeMine');
-    const theirs = await revoked('ResumeTheirs');
+    const mine = await selfStopped('ResumeMine');
+    const theirs = await selfStopped('ResumeTheirs');
     const response = await resume(mine, {
       body: JSON.stringify({ uid: theirs, participantId: theirs }),
       headers: { 'Content-Type': 'application/json' },
@@ -287,6 +310,123 @@ test('a resume only ever reaches the caller\'s own account', async () => {
     const anonymous = await POST(new Request(`${baseUrl}/api/mobile/account/resume`, { method: 'POST' }));
     assert.equal(anonymous.status, 401);
     assert.ok((await readTrust(theirs))?.revokedAt);
+  } finally {
+    end();
+  }
+});
+
+
+/* ── An operator's stop is not the person's to undo (review of #883) ── */
+
+// `scripts/revoke-user.ts` is the operator's «إنهاء وصول» (docs/operations/
+// V03_PILOT_OPERATIONAL_DEPLOYMENT.md, Participant Revoke). It stamped the
+// same `revokedAt` as the old «وقّف», so the resume route would have let the
+// person lift it with one press after signing in again.
+
+async function operatorRevoked(name: string): Promise<string> {
+  const { revokeAccountAsOperator } = await import('../../lib/pilot/operatorRevoke.ts');
+  const uid = uidFor(name);
+  await getOrCreateTrust(uid, new Date(Date.now() - 1000).toISOString());
+  const cut: string[] = [];
+  await revokeAccountAsOperator(uid, { revokeRefreshTokens: async (id) => { cut.push(id); } });
+  assert.deepEqual(cut, [uid], 'the operator revoke did not cut the refresh tokens');
+  return uid;
+}
+
+test('an operator revoke cannot be lifted from the app', async () => {
+  begin();
+  try {
+    const { readTrust, listAuditEvents } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const uid = await operatorRevoked('OperatorResume');
+    const before = await readTrust(uid);
+    assert.equal(before?.revokedBy, 'operator');
+
+    const response = await resume(uid);
+    assert.equal(response.status, 403, 'an operator revoke was lifted by the account');
+    assert.equal((await response.json() as { reason: string }).reason, 'operator_revoked');
+    assert.deepEqual(await readTrust(uid), before, 'the refused resume changed the trust record');
+    assert.equal((await listAuditEvents(uid)).some((event) => event.reasonCode === 'resume_account'), false);
+
+    // The other routes say who stopped it, so the app can say so too.
+    const elsewhere = await profileGet(authed(uid, '/api/mobile/profile'));
+    assert.equal(elsewhere.status, 403);
+    assert.deepEqual(await elsewhere.json(), {
+      success: false, error: 'this account was revoked', reason: 'revoked', revokedBy: 'operator',
+    });
+    // Its data rights stay.
+    assert.equal((await exportGet(authed(uid, '/api/mobile/account/export'))).status, 200);
+  } finally {
+    end();
+  }
+});
+
+test('the operator script revokes through the marked operator path', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync('scripts/revoke-user.ts', 'utf8');
+  assert.match(source, /revokeAccountAsOperator\(/);
+  assert.doesNotMatch(source, /type: 'revoke'/, 'the script still writes an unmarked revoke');
+});
+
+test('a revoke written before the mark exists is the person\'s only when its «وقّف» audit line is there', async () => {
+  begin();
+  try {
+    const { readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    // The old operator script: a revoke and no audit line at all.
+    const operatorOld = await revoked('LegacyOperatorResume');
+    const refused = await resume(operatorOld);
+    assert.equal(refused.status, 403, 'an unmarked revoke with no «وقّف» line was lifted');
+    assert.equal((await refused.json() as { reason: string }).reason, 'operator_revoked');
+    assert.ok((await readTrust(operatorOld))?.revokedAt);
+
+    // The old «وقّف»: its audit line sits at the revoke.
+    const self = await selfStopped('LegacySelfResume');
+    assert.equal((await resume(self)).status, 200);
+    assert.equal((await readTrust(self))?.revokedAt, null);
+  } finally {
+    end();
+  }
+});
+
+test('a «وقّف» line long before the lock does not make a later unmarked revoke the person\'s', async () => {
+  begin();
+  try {
+    const { createPilotAuditEvent } = await import('../../lib/pilot/closedPilotControls.ts');
+    const { appendAudit, readTrust } = await import('../../lib/pilot/pilotTrustStore.ts');
+    const uid = uidFor('StaleStopLine');
+    const day = 24 * 60 * 60 * 1000;
+    await getOrCreateTrust(uid, new Date(Date.now() - 3 * day).toISOString());
+    await appendAudit(createPilotAuditEvent({
+      version: 'v1', eventType: 'revoked', participantId: uid,
+      occurredAt: new Date(Date.now() - 2 * day).toISOString(), outcome: 'recorded', reasonCode: 'revoke',
+    }));
+    await applyTrustAction(uid, { type: 'revoke', at: new Date().toISOString() });
+    const refused = await resume(uid);
+    assert.equal(refused.status, 403);
+    assert.ok((await readTrust(uid))?.revokedAt);
+  } finally {
+    end();
+  }
+});
+
+test('a resume that loses a race never turns off what the person turned on after the first one', async () => {
+  begin();
+  try {
+    const { resumeRevokedAccount } = await import('../../lib/services/mobile/pilotService.ts');
+    const { getRecommendationConsent, setRecommendationConsent, RECOMMENDATION_CONSENT_VERSION } = await import('../../lib/consents/recommendationConsentService.ts');
+    const { personalizationGrowthAllowed, setPersonalizationConsent, PERSONALIZATION_CONSENT_VERSION } = await import('../../lib/consents/personalizationConsentService.ts');
+    const uid = await lockedAfterAgreeing('RacingResume');
+    // The second press read the account while it was still locked; the first
+    // press finished, and the person turned both back on, before it went on.
+    const result = await resumeRevokedAccount(uid, {
+      afterRead: async () => {
+        assert.equal((await resume(uid)).status, 200);
+        await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
+        await setPersonalizationConsent(uid, { state: 'granted', version: PERSONALIZATION_CONSENT_VERSION });
+      },
+    });
+    assert.equal(result.trust.revokedAt, null);
+    assert.equal(await getRecommendationConsent(uid), 'granted', 'the late resume declined suggestions again');
+    assert.equal(await personalizationGrowthAllowed(uid), true, 'the late resume turned learning off again');
   } finally {
     end();
   }
