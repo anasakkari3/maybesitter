@@ -222,7 +222,8 @@ test('R1.1 a cap reached answers unavailable with no model call', async () => {
   for (let index = 0; index < 8; index += 1) await reserveCall(uid, 'plan_explanation', { storage: currentStorage() as any });
   const answer = await summary(uid);
   assert.equal(answer.status, 200, show(answer.body));
-  assert.deepEqual(answer.body.summary, { status: 'unavailable' });
+  // Staging 2026-11-20: the person is told it is the minute cap.
+  assert.deepEqual(answer.body.summary, { status: 'unavailable', reason: 'busy_now' });
   assert.equal(model.calls.length, 0);
 });
 
