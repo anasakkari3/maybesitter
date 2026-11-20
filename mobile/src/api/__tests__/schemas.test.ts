@@ -216,6 +216,7 @@ const CASES: [string, z.ZodType][] = [
   ['goalPlan.refusedExistingDraft', goalPlanRefusalSchema],
   ['goalPlan.refusedInvalidEdit', goalPlanRefusalSchema],
   ['goalPlan.refusedStatementEvent', goalPlanRefusalSchema],
+  ['goalPlan.refusedStatementTooLong', goalPlanRefusalSchema],
   ['goalPlan.regenerateModelUnavailable', goalPlanRefusalSchema],
   ['goalPlan.regeneratedTemplate', goalPlanResponseSchema],
   ['capture.proposal', captureProposalSchema],

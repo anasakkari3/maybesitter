@@ -36,7 +36,7 @@ import { atLocal, candidateMinutes, commitmentCandidates, dayContexts, exactSlot
 import { localDateOf } from '../dailyPlan/planSettings';
 import { readCurrentPlan } from '../dailyPlan/planRefresh';
 import { DEFAULT_MOBILE_TIMEZONE } from './time';
-import { readOwnedMemory, createManualMemoryIdempotent, MemoryNotFoundError } from './memoryService';
+import { readOwnedMemory, createManualMemoryIdempotent, MemoryNotFoundError, MAX_MEMORY_CONTENT_LENGTH } from './memoryService';
 import { loadDomainState, writeDomainDiff } from './participantState';
 import {
   COMMITMENTS,
@@ -1312,12 +1312,18 @@ function looksLikeScheduledEvent(text: string): boolean {
 }
 
 /**
- * The longest goal statement taken (QA v3, V3-F22-04: 15,000 characters were
- * kept as the goal). Above the app's longest path — a 2,000-character
- * statement, a newline and a 2,000-character answer to the vague question —
- * so nothing the app sends is refused by it.
+ * The longest goal statement taken, in code points after trimming.
+ *
+ * The accepted text is written whole as the goal's memory — the statement
+ * and, after «بدي أفهمك أكتر», the answer joined to it on a new line — and a
+ * memory holds at most `MAX_MEMORY_CONTENT_LENGTH`. So this is that bound,
+ * not a separate one: 4,100 (V3-F22-04) let a preview pass that the accept
+ * then answered with 500 `internal_error`. The app can send more than this
+ * (a 2,000-character statement field, a 2,000-character answer), so the
+ * preview refuses with `goal_too_long`, which the app explains and answers
+ * by offering the same words back to shorten.
  */
-export const GOAL_STATEMENT_MAX_CHARACTERS = 4_100;
+export const GOAL_STATEMENT_MAX_CHARACTERS = MAX_MEMORY_CONTENT_LENGTH;
 
 function refuseLongStatement(text: string): void {
   if (Array.from(text).length > GOAL_STATEMENT_MAX_CHARACTERS) {

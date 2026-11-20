@@ -136,6 +136,32 @@ describe('M3a A5 entries use one flow', () => {
     expect(screen.getByTestId('plan-failure-action')).toBeTruthy();
     expect(screen.queryByText(en.errorsServer)).toBeNull();
   });
+
+  // QA v3 follow-up of #879: a goal past 200 characters is refused at preview.
+  // The bound is said, the same words come back to shorten, and the shorter
+  // words go back on their own.
+  it('A5 goal_too_long: says the bound, gives the words back, and sends the shorter ones alone', async () => {
+    const long = 'Lose weight '.repeat(20).trim();
+    harness.server.handler = (request) =>
+      request.path.endsWith('/from-statement/preview') && (request.body as { statement?: string } | undefined)?.statement === long
+        ? { status: 422, body: { success: false, error: 'goal_too_long', reason: 'goal_too_long', maxCharacters: 200 } }
+        : defaultReply(request);
+    await renderGoals(harness);
+    await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());
+    await changeText('intelligence-statement', long);
+    await press('intelligence-plan-flow');
+
+    await waitFor(() => expect(screen.queryByText(en.xPlanFailTooLong)).not.toBeNull());
+    expect(screen.queryByText(en.errorsServer)).toBeNull();
+    await press('plan-failure-action');
+    expect(screen.getByTestId('plan-failure-answer').props.value).toBe(long);
+    await changeText('plan-failure-answer', 'Lose weight gradually');
+    await press('plan-failure-answer-send');
+
+    await waitFor(() => expect(screen.queryByTestId('plan-summary')).not.toBeNull());
+    expect(harness.server.matching('POST', /\/from-statement\/preview$/).map((request) => request.body))
+      .toEqual([{ statement: long, locale: 'en' }, { statement: 'Lose weight gradually', locale: 'en' }]);
+  });
 });
 
 describe('M3a A6 typed failures and live state', () => {

@@ -50,6 +50,19 @@ describe('plan failures', () => {
     expect(failure.recoveries).toEqual(['answer', 'template']);
   });
 
+  // QA v3 follow-up of #879: the server refuses a goal past the 200 characters
+  // a goal memory holds. The app knows the reason, says the bound, and offers
+  // to say it again in the same words (the answer field, filled with them).
+  it.each(LANGS)('%s: a goal that is too long says the 200-character bound and offers to say it again', (lang) => {
+    expect(GOAL_PLAN_REASONS).toContain('goal_too_long');
+    const t = strings[lang];
+    const failure = planFailureOf(new GoalPlanRefusedError('goal_too_long' as never, 422), t)!;
+    expect(failure.reason).toBe('goal_too_long');
+    expect(failure.message).toBe(t.xPlanFailTooLong);
+    expect(failure.message).toContain('200');
+    expect(failure.recoveries).toEqual(['rephrase']);
+  });
+
   it('no signal and the daily cap say so even without a typed refusal', () => {
     expect(planFailureOf(new NetworkError('offline'), strings.en)!.reason).toBe('offline');
     expect(planFailureOf(new QuotaExceededError('user_daily', 60, 'cap'), strings.en)!.recoveries).toEqual([]);

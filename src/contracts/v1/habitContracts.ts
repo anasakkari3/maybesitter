@@ -388,14 +388,22 @@ function parseCount(value: unknown, label: string, min: number, max: number): nu
   return value;
 }
 
+/** Every day of the week, 0 = Sunday: what «كل يوم» is stored as. */
+const EVERY_DAY: HabitCadence = Object.freeze({
+  kind: 'weekdays' as const,
+  weekdays: Object.freeze([0, 1, 2, 3, 4, 5, 6]),
+});
+
 export function parseHabitCadence(value: unknown, label = 'cadence'): HabitCadence {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object`);
   const raw = value as Record<string, unknown>;
   if (raw.kind === 'weekly_count') {
-    return Object.freeze({
-      kind: 'weekly_count' as const,
-      count: parseCount(raw.count, `${label}.count`, 1, HABIT_MAX_OCCURRENCES_PER_PERIOD),
-    });
+    const count = parseCount(raw.count, `${label}.count`, 1, HABIT_MAX_OCCURRENCES_PER_PERIOD);
+    // Seven a week leaves no day to choose: it is every day, and it is stored
+    // as the days (owner decision 2026-11-20). As a count it read as "any day
+    // counts", so a habit begun mid-week owed seven in the days left (V3-F23-04).
+    if (count === HABIT_MAX_OCCURRENCES_PER_PERIOD) return EVERY_DAY;
+    return Object.freeze({ kind: 'weekly_count' as const, count });
   }
   if (raw.kind === 'weekdays') {
     if (!Array.isArray(raw.weekdays) || raw.weekdays.length === 0) {
@@ -631,6 +639,18 @@ export function isHabitDefinition(value: unknown): value is HabitDefinition {
     return false;
   }
   return true;
+}
+
+/**
+ * A stored habit as this server reads it: one an older server saved as
+ * `weekly_count` 7 is every day (owner decision 2026-11-20). Applied on every
+ * read rather than by a migration, the way `normalizeStoredCommitment` reads
+ * older commitments; the document is rewritten only when the person edits it.
+ * The demand dates are the same either way, so no occurrence id moves.
+ */
+export function normalizeStoredHabit(habit: HabitDefinition): HabitDefinition {
+  if (habit.cadence.kind !== 'weekly_count' || habit.cadence.count !== HABIT_MAX_OCCURRENCES_PER_PERIOD) return habit;
+  return Object.freeze({ ...habit, cadence: EVERY_DAY });
 }
 
 export interface HabitStore {

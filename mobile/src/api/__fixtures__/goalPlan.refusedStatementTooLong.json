@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "error": "goal_too_long",
+  "reason": "goal_too_long",
+  "maxCharacters": 200
+}

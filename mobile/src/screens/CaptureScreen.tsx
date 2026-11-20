@@ -7,6 +7,7 @@ import { MAX_CAPTURE_LENGTH, chatSaves, confirmableGoals, confirmableHabits, con
 import { GoalProposalCard, HabitProposalCard, SeedCommitAction, ThoughtProposalCard } from '../features/capture/ProposalPointCards';
 import { tFor } from '../i18n';
 import { LiveRegion } from '../ui/liveRegion';
+import { chipSeparator } from '../ui/chipText';
 import { useGoalPlan } from '../api/queries';
 import { understoodKeyOf, UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
 import { familyIdOf, familyIdOfLine, type PointTarget } from '../features/capture/pointIdentity';
@@ -128,7 +129,7 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
     thoughtsSaved > 0 ? tFor(lang)('xSavedThoughtsN', { n: thoughtsSaved }) : null,
     waitingSaved > 0 ? tFor(lang)('xSavedWaitingN', { n: waitingSaved }) : null,
   ].filter((part): part is string => part !== null);
-  if (families.length > 0) paragraphs.push(fill(t.xSavedFamilies, { list: families.join(lang === 'en' ? ', ' : '، ') }));
+  if (families.length > 0) paragraphs.push(fill(t.xSavedFamilies, { list: families.join(chipSeparator(lang)) }));
   if (note.weeklySaved.length > 0) {
     paragraphs.push([...note.weeklySaved.map(({ block }) => weeklyLine(block, lang)), t.wbSavedNote].join('\n'));
   }

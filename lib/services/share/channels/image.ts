@@ -67,7 +67,7 @@
  * asserts that no key anywhere in the response is named for one.
  */
 import { screenForInjection } from '../../../../src/extraction/injectionBoundary';
-import { LLMUnavailableError } from '../../../../src/extraction/llm';
+import { DEFAULT_STRUCTURED_TIMEOUT_MS, LLMUnavailableError } from '../../../../src/extraction/llm';
 import { metadataSegmentsIn, stripImageMetadata } from '../imageMetadata';
 import {
   IMAGE_RESPONSE_SCHEMA,
@@ -106,6 +106,28 @@ export const IMAGE_CHANNEL_PRIORITY = 10;
  * several thousand. Five of the second kind is the accident this exists for.
  */
 export const MAX_SHARE_PROMPT_TOKENS = 12_000;
+
+/**
+ * The server time every picture of one share may spend waiting on the model,
+ * attempts and retries together (QA v3; owner decision: the server gives up
+ * before the phone does).
+ *
+ * Each call used to get the seam's 45 s and the provider's one retry — 90 s a
+ * picture, in turn — while the phone abandons the whole upload at 60 s
+ * (`UPLOAD_TIMEOUT_MS` in `mobile/src/api/client.ts`) and Cloud Run the
+ * request at 60 s (`--timeout=60`). Then the phone said «القراية طوّلت» over a
+ * request the server was still paying for. After the pictures the capture may
+ * wait on the model for `CAPTURE_SERVER_BUDGET_MS` (12 s), so 40 s here ends
+ * the model's part by 52 s and leaves the rest for the upload and storage:
+ * the server answers, honestly «the model did not answer», before 60.
+ */
+export const IMAGE_READ_BUDGET_MS = 40_000;
+
+/**
+ * Below this, a picture is not sent: it would more likely time out than be
+ * read, and it is counted as `deadlineSkipped` instead.
+ */
+const MIN_IMAGE_CALL_MS = 2_000;
 
 /** One short structured answer per image. Well under the seam's 2048 default. */
 const MAX_OUTPUT_TOKENS = 512;
@@ -318,8 +340,21 @@ export const imagePreprocessor: SharePreprocessor = {
     let verbose = 0;
     let duplicate = 0;
     let modelUnavailable = 0;
+    let deadlineSkipped = 0;
     const segments: ShareSegment[] = [];
     const seen = new Set<string>();
+
+    /*
+     * One deadline for the whole read. Its signal goes to every call, so it
+     * ends a call in flight and stops the provider's retry (a call aborted by
+     * its caller is not retried); the request's own abort is chained into it.
+     */
+    const deadlineAt = Date.now() + IMAGE_READ_BUDGET_MS;
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), IMAGE_READ_BUDGET_MS);
+    const onRequestAbort = () => deadline.abort();
+    if (context.signal?.aborted) deadline.abort();
+    else context.signal?.addEventListener('abort', onRequestAbort, { once: true });
 
     try {
       for (let index = 0; index < input.files.length; index += 1) {
@@ -342,6 +377,12 @@ export const imagePreprocessor: SharePreprocessor = {
           continue;
         }
 
+        const left = deadlineAt - Date.now();
+        if (deadline.signal.aborted || left < MIN_IMAGE_CALL_MS) {
+          deadlineSkipped += 1;
+          continue;
+        }
+
         let answered: readonly ImageModelItem[];
         try {
           const response = await context.generateStructured({
@@ -349,7 +390,8 @@ export const imagePreprocessor: SharePreprocessor = {
             parts: imageParts(file.mediaType, stripped.bytes, caption),
             responseSchema: IMAGE_RESPONSE_SCHEMA,
             maxOutputTokens: MAX_OUTPUT_TOKENS,
-            ...(context.signal ? { signal: context.signal } : {}),
+            timeoutMs: Math.min(DEFAULT_STRUCTURED_TIMEOUT_MS, left),
+            signal: deadline.signal,
           });
           // Counted whatever the answer turns out to say. A call that came back
           // as prose cost exactly what a useful one costs.
@@ -406,9 +448,12 @@ export const imagePreprocessor: SharePreprocessor = {
           verboseDropped: verbose,
           duplicateDropped: duplicate,
           modelUnavailable,
+          deadlineSkipped,
         },
       });
     } finally {
+      clearTimeout(timer);
+      context.signal?.removeEventListener('abort', onRequestAbort);
       /*
        * The copies this channel made.
        *

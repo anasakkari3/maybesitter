@@ -33,8 +33,16 @@
         "pointId": "00000000-0000-4000-8000-000000000006",
         "title": "أمشي نص ساعة كل يوم",
         "cadence": {
-          "kind": "weekly_count",
-          "count": 7
+          "kind": "weekdays",
+          "weekdays": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ]
         },
         "durationMinutes": 30,
         "preferredWindow": "morning",

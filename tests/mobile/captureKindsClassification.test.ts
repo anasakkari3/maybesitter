@@ -40,7 +40,8 @@ test('habit classification and fields come from the habit item source segment', 
     const [habit] = habitsOf(answer);
     assert.ok(habit, 'the walking clause did not become a habit');
     assert.ok(habit.title.includes('أمشي'), habit.title);
-    assert.deepEqual(habit.cadence, { kind: 'weekly_count', count: 7 });
+    // «كل يوم» names every day (owner decision 2026-11-20), not 7 a week.
+    assert.deepEqual(habit.cadence, { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] });
     assert.equal(habit.preferredWindow, 'morning');
     assert.equal(answer.proposal?.items.length, 1);
     assert.ok(answer.proposal?.items[0]?.title.includes('الدكتور'));

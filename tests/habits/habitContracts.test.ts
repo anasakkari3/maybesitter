@@ -15,6 +15,7 @@ import {
   buildHabitDefinition,
   cadenceOccurrencesPerPeriod,
   isHabitDefinition,
+  normalizeStoredHabit,
   parseHabitCadence,
   parseHabitDefinitionInput,
   parseHabitPatchInput,
@@ -178,6 +179,31 @@ test('a cadence is one of exactly two shapes, and weekdays do not repeat', () =>
   assert.throws(() => parseHabitCadence({ kind: 'weekdays', weekdays: [7] }), /between 0 and 6/);
   assert.throws(() => parseHabitCadence({ kind: 'weekly_count', count: 8 }), /between 1 and 7/);
   assert.throws(() => parseHabitCadence({ kind: 'monthly', count: 2 }), /weekly_count or weekdays/);
+});
+
+test('every day is the seven weekdays, however it arrives (owner decision 2026-11-20)', () => {
+  const everyDay = { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] };
+  // «كل يوم» was 7 a week, a count the planner then counted on any day of the
+  // week; it names every day, so it is stored as the days themselves.
+  assert.deepEqual(parseHabitCadence({ kind: 'weekly_count', count: 7 }), everyDay);
+  assert.deepEqual(parseHabitDefinitionInput(habitInput({
+    cadence: { kind: 'weekly_count', count: 7 }, minimumOccurrences: 7, maximumOccurrences: 7,
+  })).cadence, everyDay);
+  assert.deepEqual(parseHabitPatchInput({ cadence: { kind: 'weekly_count', count: 7 } }).cadence, everyDay);
+  // A count below seven still leaves the days to the planner.
+  assert.deepEqual(parseHabitCadence({ kind: 'weekly_count', count: 6 }), { kind: 'weekly_count', count: 6 });
+});
+
+test('a habit stored as 7 a week reads back as every day, and nothing else about it changes', () => {
+  const old = buildHabitDefinition('habit-old', { ...habitInput({ minimumOccurrences: 7, maximumOccurrences: 7 }),
+    cadence: { kind: 'weekly_count', count: 7 }, flexibility: 'flexible', source: 'capture_chat' }, NOW);
+  assert.deepEqual(old.cadence, { kind: 'weekly_count', count: 7 }, 'the fixture must be the old stored shape');
+  const read = normalizeStoredHabit(old);
+  assert.deepEqual(read, { ...old, cadence: { kind: 'weekdays', weekdays: [0, 1, 2, 3, 4, 5, 6] } });
+  assert.ok(isHabitDefinition(read));
+  // Any other habit comes back as it was stored.
+  const weekly = habit();
+  assert.deepEqual(normalizeStoredHabit(weekly), weekly);
 });
 
 test('a built habit is born active, versioned, and readable back', () => {

@@ -537,6 +537,9 @@ export class WeeklyBlockRefusedError extends ApiError {
 export const GOAL_PLAN_REASONS = [
   'model_unavailable', 'daily_cap_reached', 'no_steps', 'stale', 'schedule_changed', 'offline',
   'goal_too_vague', 'not_a_goal', 'too_many_edits', 'invalid_edit', 'slot_in_past', 'not_free',
+  // A statement past the 200 characters a goal holds (QA v3, after #879): the
+  // preview refuses it, so the person shortens it instead of meeting a 500.
+  'goal_too_long',
   'key_reused', 'gone', 'plan_confirmed', 'goal_superseded', 'projection_pending',
   // M4a «غيّر كل الأوقات»: newer times exist (they come with the refusal); the
   // times were already confirmed; a day outside today … today + 14.

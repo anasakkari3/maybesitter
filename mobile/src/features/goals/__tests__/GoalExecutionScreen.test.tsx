@@ -301,7 +301,7 @@ it('has no page subtitle and keeps the add-goal explanation behind its arrow (ow
 it('names the list of saved goals in the plural and the page in plain words', () => {
   expect(strings.en.xGoalSaved).toBe('Saved goals');
   expect(strings.ar.xGoalSaved).toBe('أهدافك المحفوظة');
-  expect(strings.he.xGoalSaved).toBe('יעדים שמורים');
+  expect(strings.he.xGoalSaved).toBe('מטרות שמורות');
   expect(strings.en.xGoals).toBe('Goals');
-  expect(strings.he.xGoals).toBe('יעדים');
+  expect(strings.he.xGoals).toBe('מטרות');
 });
