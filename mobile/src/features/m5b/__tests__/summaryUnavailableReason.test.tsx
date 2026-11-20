@@ -51,7 +51,7 @@ describe('the summary schema', () => {
 
   it('has every reason line in all three languages', () => {
     for (const [, key] of REASONS) {
-      for (const locale of [en, ar, he] as unknown as Array<Record<string, string>>) {
+      for (const locale of [en, ar, he] as unknown as Record<string, string>[]) {
         expect(typeof locale[key]).toBe('string');
         expect(locale[key]!.length).toBeGreaterThan(0);
       }
@@ -89,7 +89,7 @@ describe('what each line means', () => {
   const locales = { en, ar, he } as unknown as Record<string, Record<string, string>>;
   const meaning: Record<string, Record<string, RegExp[]>> = {
     m5bSummaryBusyNow: { en: [/minute/i], ar: [/دقيقة/], he: [/דקה/] },
-    m5bSummaryDailyCap: { en: [/today/i, /tomorrow/i], ar: [/اليوم/, /بكرا/], he: [/היום/, /מחר/] },
+    m5bSummaryDailyCap: { en: [/today/i, /tomorrow/i], ar: [/ليوم/, /بكرا/], he: [/היום/, /מחר/] },
     m5bSummaryMonthlyCap: { en: [/month/i, /next month/i], ar: [/لهالشهر/, /الشهر الجاي/], he: [/לחודש הזה/, /החודש הבא/] },
     m5bSummaryNotIncluded: { en: [/Features/], ar: [/«الميزات»/], he: [/«תכונות»/] },
   };
@@ -116,24 +116,22 @@ describe('a refusal with a reason is not a final answer', () => {
     expect(requests()).toBe(2);
   });
 
-  it('a later mount asks again for a refusal with a reason, never for a bare unavailable', async () => {
-    for (const [summary, expected] of [
-      [{ status: 'unavailable', reason: 'daily_cap' }, 2],
-      [{ status: 'unavailable' }, 1],
-    ] as const) {
-      harness = await prepare('en', initialState({ summary: summary as Record<string, unknown> }));
+  for (const [summary, expected] of [
+    [{ status: 'unavailable', reason: 'daily_cap' }, 2],
+    [{ status: 'unavailable' }, 1],
+  ] as const) {
+    it(`a later mount asks ${expected === 2 ? 'again' : 'nothing'} for ${JSON.stringify(summary)}`, async () => {
+      harness = await prepare('en', initialState({ summary: { ...summary } }));
       const first = await showKnows(harness);
       await waitFor(() => expect(screen.queryByTestId('memory-item-memory-1')).not.toBeNull());
       await waitFor(() => expect(requests()).toBe(1));
-      first.unmount();
+      await first.unmount();
       await showKnows(harness);
       await waitFor(() => expect(screen.queryByTestId('memory-item-memory-1')).not.toBeNull());
       await act(async () => { await jest.advanceTimersByTimeAsync(1_000); });
-      expect([summary, requests()]).toEqual([summary, expected]);
-      await teardown(harness);
-      harness = undefined;
-    }
-  });
+      expect(requests()).toBe(expected);
+    });
+  }
 });
 
 describe('the line reaches a screen reader', () => {
@@ -144,11 +142,12 @@ describe('the line reaches a screen reader', () => {
       harness = await prepare('en', initialState({ summary: { status: 'unavailable', reason: 'monthly_cap' } }));
       await showKnows(harness);
       await waitFor(() => expect(screen.queryByTestId('memory-summary-unavailable')).not.toBeNull());
-      let node: { props: Record<string, unknown> } | null = screen.getByTestId('memory-summary-unavailable') as never;
+      type Node = { props: Record<string, unknown>; parent: Node | null };
+      let node: Node | null = screen.getByTestId('memory-summary-unavailable') as unknown as Node;
       let polite = false;
       while (node) {
         if (node.props.accessibilityLiveRegion === 'polite') { polite = true; break; }
-        node = (node as unknown as { parent: typeof node }).parent;
+        node = node.parent;
       }
       expect(polite).toBe(true);
       expect(announce).toHaveBeenCalledWith(en.m5bSummaryMonthlyCap);

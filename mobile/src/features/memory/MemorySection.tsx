@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolateAuto, isolateLatinRuns } from '../../i18n/bidi';
@@ -101,6 +101,25 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   // the list keeps the card and its disclosure (M5B-A-004).
   const summaryOn = m5bOn === true && hasItems;
   const summary = useMemorySummary(summaryLanguage(lang), summaryOn && disclosed);
+  // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
+  // or one still running after a memory change, never shows the old one.
+  // A list that failed to refetch shows its rows.
+  const current = summary.status === 'success' && !summary.isFetching && !memory.isError;
+  // A refusal the person can act on is said in one line above the rows
+  // (staging 2026-11-20: the minute cap looked like nothing at all). With no
+  // reason there is nothing to act on, and the card stays as it was.
+  const reason = summaryOn && current && summary.data.status === 'unavailable' ? summary.data.reason : undefined;
+  const unavailableLine = reason ? t[SUMMARY_UNAVAILABLE_LINE[reason]] : null;
+  useAnnounceOnIos(unavailableLine);
+  // The minute cap clears in a minute: asked once more after it, once per
+  // mount, never in a loop (review of #885). Its line says so.
+  const retriedBusy = useRef(false);
+  const refetchSummary = summary.refetch;
+  useEffect(() => {
+    if (reason !== 'busy_now' || retriedBusy.current) return undefined;
+    const timer = setTimeout(() => { retriedBusy.current = true; void refetchSummary(); }, SUMMARY_BUSY_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [reason, refetchSummary]);
 
   // 404 on the first read: the feature is off for this build. Nothing to show,
   // and nothing to apologise for. A failed refetch keeps the rows it had.
@@ -116,17 +135,8 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
     setKept({ content: keptEdit.content, kind: keptEdit.kind });
   }
   const strings = t as unknown as Record<string, string>;
-  // Only a current answer is a paragraph (M5B-A-001): a refetch that failed,
-  // or one still running after a memory change, never shows the old one.
-  // A list that failed to refetch shows its rows.
-  const current = summary.status === 'success' && !summary.isFetching && !memory.isError;
   const ready = summaryOn && current && summary.data.status === 'ready' ? summary.data : null;
   const loading = summaryOn && !memory.isError && (!disclosed || summary.isFetching || summary.isPending) && summary.status !== 'error';
-  // A refusal the person can act on is said in one line above the rows
-  // (staging 2026-11-20: the minute cap looked like nothing at all). With no
-  // reason there is nothing to act on, and the card stays as it was.
-  const reason = summaryOn && current && summary.data.status === 'unavailable' ? summary.data.reason : undefined;
-  const unavailableLine = reason ? t[SUMMARY_UNAVAILABLE_LINE[reason]] : null;
 
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID="memory-section">
@@ -162,11 +172,15 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
         <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
           <Txt size={14} color={p.mu} testID="memory-summary-loading">{t.m5bSummaryLoading}</Txt>
         </View>
-      ) : unavailableLine ? (
-        <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
-          <Txt size={14} color={p.mu} testID="memory-summary-unavailable">{isolateLatinRuns(unavailableLine)}</Txt>
-        </View>
       ) : null}
+
+      {/* Why there is no paragraph: always mounted, so TalkBack hears the
+          line arrive; VoiceOver hears useAnnounceOnIos (review of #885). */}
+      <LiveRegion style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
+        {unavailableLine && !ready && !loading
+          ? <Txt size={14} color={p.mu} testID="memory-summary-unavailable">{isolateLatinRuns(unavailableLine)}</Txt>
+          : null}
+      </LiveRegion>
 
       {ready || loading ? null : items.map(item => (
         <MemoryRow
@@ -405,6 +419,9 @@ function MemoryRow({
 }
 
 const summaryLanguage = (lang: string): 'ar' | 'en' | 'he' => (lang === 'ar' || lang === 'he' ? lang : 'en');
+
+/** A minute and a little: the minute cap counts by the UTC minute. */
+const SUMMARY_BUSY_RETRY_MS = 65_000;
 
 /** The line for each reason the summary route gives (lib/services/mobile/memorySummary.ts). */
 const SUMMARY_UNAVAILABLE_LINE = {

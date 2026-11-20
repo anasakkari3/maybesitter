@@ -8,7 +8,7 @@ import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
 import { isCanonicalRoutineFact } from '../../memory/routineFacts';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
 import { logLlmCall, uidHash, type LlmOutcome } from '../../llm/llmLog';
-import { aiDisabled, commitUsage, reserveCall, type ReservationOutcome } from '../../llm/usageGuard';
+import { aiDisabled, commitUsage, reserveCall } from '../../llm/usageGuard';
 import { createHash } from 'node:crypto';
 import { getStorage } from '../../storage';
 import { MEMORY_SUMMARIES, userCol, userDoc } from '../../storage/paths';
@@ -350,11 +350,41 @@ function rowNamesArabicDay(day: string, rowWords: readonly string[]): boolean {
     if (stem === undefined || !stems.includes(stem)) return false;
     // With «ال» it is a day, as before; a bare «أحد/اتنين/تلات» needs a day beside it.
     return /^[وف]?(?:لل|[بلك]?ال)/.test(word) || !AMBIGUOUS_DAY_STEMS.has(stem)
-      || inArabicDayContext(rowWords[index - 1], rowWords[index + 1])
-      // «كل تلات/كل اتنين» with no counted unit after it: `rowWordValues`
-      // reads it as that day (it holds no number), so it names that day too
-      // (staging 2026-11-20: «يوم التلات» for a row's «كل تلات» was refused).
-      || (ARABIC_NUMBER_WEEKDAYS.some(([pattern]) => pattern.test(word)) && everyDayReading(rowWords[index - 1], rowWords[index + 1]));
+      || inArabicDayContext(rowWords[index - 1], rowWords[index + 1]);
+  });
+}
+
+/**
+ * The Levantine weekdays a row may name as «كل تلات» / «كل اتنين», with no
+ * «ال». Never the MSA «ثلاث»: «بروح كل ثلاث» is "every three" with what is
+ * counted left out (review of #885).
+ */
+const ROW_EVERY_DAY: Readonly<Record<string, RegExp>> = {
+  monday: /^[وف]?(?:اثنين|اتنين)$/,
+  tuesday: /^[وف]?تلات$/,
+};
+/** Words of the time of day that may follow «كل تلات» without being what is counted. Normalized spellings. */
+const DAY_FOLLOWERS = new Set([
+  'الصبح', 'الصباح', 'بالصبح', 'الصبحيه', 'الضهر', 'الظهر', 'بالضهر', 'بالظهر', 'العصر', 'بالعصر',
+  'المسا', 'المساء', 'بالمسا', 'بالمساء', 'الليل', 'بالليل', 'العشيه', 'بعد', 'قبل', 'الساعه', 'عالساعه',
+]);
+const CLAUSE_BREAK = /[،,.؛;!?؟:\n()«»"]+/;
+
+/**
+ * Whether a row names the day as «كل تلات/كل اتنين» (staging 2026-11-20:
+ * «يوم التلات» said back for a row's «كل تلات» was refused). Only where
+ * nothing counted can follow: the end of the row or of its clause, or a word
+ * of the time of day. Any other word after it may be what is counted («كل
+ * تلات وجبات», every three meals), so the row names no day there (review of
+ * #885: a closed list of units let «كل ثلاث حبات» name Tuesday).
+ */
+function rowNamesEveryDay(day: string, text: string): boolean {
+  const pattern = ROW_EVERY_DAY[day];
+  if (!pattern) return false;
+  return normalize(text).split(CLAUSE_BREAK).some((clause) => {
+    const clauseWords = clause.match(WORD) ?? [];
+    return clauseWords.some((word, index) => pattern.test(word) && clauseWords[index - 1] === 'كل'
+      && (clauseWords[index + 1] === undefined || DAY_FOLLOWERS.has(clauseWords[index + 1]!)));
   });
 }
 
@@ -364,7 +394,7 @@ function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): bo
     const rowWords = words(row.text);
     const text = rowWords.join(' ');
     return names.some((name) => ` ${text} `.includes(` ${name} `) || text.split(' ').some((word) => word.endsWith(name) && name.startsWith('ال')))
-      || rowNamesArabicDay(day, rowWords);
+      || rowNamesArabicDay(day, rowWords) || rowNamesEveryDay(day, row.text);
   });
 }
 
@@ -642,17 +672,21 @@ export type MemorySummaryResult =
   | { readonly status: 'unavailable'; readonly reason?: MemorySummaryUnavailableReason }
   | { readonly status: 'ready'; readonly language: MemorySummaryLanguage; readonly sentences: readonly { text: string; memoryIds: readonly string[] }[]; readonly coveredCount: number; readonly totalCount: number };
 
-const RESERVATION_REASON: Readonly<Partial<Record<ReservationOutcome, MemorySummaryUnavailableReason>>> = {
+/** The exits the person can act on: a refused reservation (`ReservationOutcome`) or add-on check (`checkProviderFeature`). */
+const REASON_FOR_EXIT: Readonly<Record<string, MemorySummaryUnavailableReason>> = Object.freeze({
   user_minute_cap: 'busy_now',
   user_cap: 'daily_cap',
   user_token_cap: 'daily_cap',
   global_cap: 'daily_cap',
   feature_budget: 'monthly_cap',
-};
-const FEATURE_REASON: Readonly<Record<string, MemorySummaryUnavailableReason>> = {
   'cost_cap:user_monthly': 'monthly_cap',
   feature_locked: 'not_included',
-};
+});
+
+/** The reason an exit code gives the person, or none. */
+export function memorySummaryUnavailableReasonFor(code: string): MemorySummaryUnavailableReason | undefined {
+  return Object.hasOwn(REASON_FOR_EXIT, code) ? REASON_FOR_EXIT[code] : undefined;
+}
 
 /**
  * One content-free line per `unavailable`, naming its exit as a fixed code
@@ -683,8 +717,9 @@ function logSummary(
   });
 }
 
-function refused(uid: string, provider: LlmProviderName, code: string, reason?: MemorySummaryUnavailableReason): MemorySummaryResult {
+function refused(uid: string, provider: LlmProviderName, code: string): MemorySummaryResult {
   logSummary(uid, provider, 'cost_cap', code);
+  const reason = memorySummaryUnavailableReasonFor(code);
   return reason === undefined ? { status: 'unavailable' } : { status: 'unavailable', reason };
 }
 
@@ -723,11 +758,11 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // The memory add-on's monthly budget (lib/features), before the daily slot.
   const feature = await checkProviderFeature(input.uid, 'memory_summary', {}, new Date(),
     worstCaseCallNanoUsd(prompt.length, 2048));
-  if (feature.refusal) return refused(input.uid, provider.name, feature.refusal, FEATURE_REASON[feature.refusal]);
+  if (feature.refusal) return refused(input.uid, provider.name, feature.refusal);
   const reservation = await reserveCall(input.uid, 'memory_summary', { storage: getStorage() });
   if (reservation !== 'ok') {
     await releaseProviderFeature(input.uid, feature, {}, new Date());
-    return refused(input.uid, provider.name, reservation, RESERVATION_REASON[reservation]);
+    return refused(input.uid, provider.name, reservation);
   }
   const timeoutMs = Math.min(MEMORY_SUMMARY_ATTEMPT_TIMEOUT_MS, remaining);
   const attemptTimer = setTimeout(input.abort, timeoutMs);
