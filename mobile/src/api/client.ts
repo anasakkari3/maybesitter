@@ -242,15 +242,17 @@ async function send(
 }
 
 /** `{ error, reason }` out of a refusal body, without trusting its shape. */
-function refusal(body: unknown): { message: string; reason: string | undefined } {
+function refusal(body: unknown): { message: string; reason: string | undefined; byOperator: boolean } {
   if (body && typeof body === 'object') {
-    const record = body as { error?: unknown; reason?: unknown };
+    const record = body as { error?: unknown; reason?: unknown; revokedBy?: unknown };
     return {
       message: typeof record.error === 'string' ? record.error : 'request refused',
       reason: typeof record.reason === 'string' ? record.reason : undefined,
+      // A `revoked` the team made (review of #883): the revoked screen offers no way back.
+      byOperator: record.revokedBy === 'operator',
     };
   }
-  return { message: 'request refused', reason: undefined };
+  return { message: 'request refused', reason: undefined, byOperator: false };
 }
 
 /**
@@ -704,9 +706,9 @@ export async function apiUpload<T>(path: string, options: UploadOptions<T>): Pro
   }
 
   if (response.status === 403) {
-    const { reason } = refusal(response.body);
+    const { reason, byOperator } = refusal(response.body);
     // `revoked` keeps the session for the revoked screen (C12.1); see `apiRequest`.
-    if (reason === 'revoked') await holdRevoked();
+    if (reason === 'revoked') await holdRevoked(undefined, byOperator);
     else if (reason === 'deleted') await signOutForbidden(reason);
     throw errorForStatus(403, response.body);
   }
@@ -800,12 +802,12 @@ export async function apiRequestTagged<T>(
   }
 
   if (response.status === 403) {
-    const { reason } = refusal(response.body);
+    const { reason, byOperator } = refusal(response.body);
     // Neither can be recovered by retrying. A deleted account returns to
     // sign-in with the reason the user will be shown. A revoked one keeps its
     // session (C12.1): it may still export and delete its data, so the app is
     // replaced by the revoked screen rather than signed out.
-    if (reason === 'revoked') await holdRevoked(options.asUid);
+    if (reason === 'revoked') await holdRevoked(options.asUid, byOperator);
     else if (reason === 'deleted') await signOutForbidden(reason, options.asUid);
     throw errorForStatus(403, response.body, path);
   }

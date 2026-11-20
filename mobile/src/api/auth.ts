@@ -95,6 +95,12 @@ export async function signOutForbidden(reason: 'revoked' | 'deleted', asUid?: st
  * again, and the first 403 holds it again.
  */
 let revokedUid: string | null = null;
+/**
+ * The held account was stopped by the team (`revokedBy: 'operator'` on the
+ * 403, or a resume refused as `operator_revoked`): the revoked screen then
+ * offers no «رجّع حسابي», only its data rights (review of #883).
+ */
+let revokedByOperator = false;
 const revokedListeners = new Set<() => void>();
 /**
  * The hold in progress, per uid. The app loads several screens at once, so a
@@ -104,10 +110,22 @@ const revokedListeners = new Set<() => void>();
  */
 const inFlightHolds = new Map<string, Promise<void>>();
 
-function setRevoked(next: string | null): void {
-  if (revokedUid === next) return;
+function setRevoked(next: string | null, byOperator = false): void {
+  const operator = next !== null && (byOperator || (revokedUid === next && revokedByOperator));
+  if (revokedUid === next && revokedByOperator === operator) return;
   revokedUid = next;
+  revokedByOperator = operator;
   for (const listener of [...revokedListeners]) listener();
+}
+
+/** Whether the held account was stopped by the team rather than by its own old «وقّف». */
+export function revokedAccountByOperator(): boolean {
+  return revokedByOperator;
+}
+
+/** The held account's stop is the team's: the way back is withdrawn. Only for the account held. */
+export function markRevokedByOperator(uid: string): void {
+  if (revokedUid === uid) setRevoked(uid, true);
 }
 
 export function revokedAccount(): string | null {
@@ -136,16 +154,20 @@ export function clearRevoked(): void {
  * handset cleanup (the FCM token, pending reminders, place regions, the
  * widget) is owed to a revoked account as much as to one that signed out.
  */
-export async function holdRevoked(asUid?: string): Promise<void> {
+export async function holdRevoked(asUid?: string, byOperator = false): Promise<void> {
   if (!stillSignedInAs(asUid)) return;
   const uid = asUid ?? repository?.currentUser()?.uid ?? null;
-  if (!uid || revokedUid === uid) return;
+  if (!uid) return;
+  if (revokedUid === uid) {
+    if (byOperator) setRevoked(uid, true);
+    return;
+  }
   const running = inFlightHolds.get(uid);
-  if (running) return running;
+  if (running) return byOperator ? running.then(() => markRevokedByOperator(uid)) : running;
   const hold = (async () => {
     await runBeforeSignOut('revoked');
     if (repository?.currentUser()?.uid !== uid) return;
-    setRevoked(uid);
+    setRevoked(uid, byOperator);
   })().finally(() => {
     inFlightHolds.delete(uid);
   });

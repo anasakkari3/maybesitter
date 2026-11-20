@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,7 +9,8 @@ import { DeleteAccountScreen } from './DeleteAccountScreen';
 import { LiveRegion } from '../ui/liveRegion';
 import { useAnnounceOnIos } from '../ui/announce';
 import { resumeAccount } from '../api/endpoints/account';
-import { clearRevoked } from '../api/auth';
+import { clearRevoked, markRevokedByOperator, onRevokedChange, revokedAccountByOperator } from '../api/auth';
+import { ForbiddenError } from '../api/errors';
 import { Pill, Txt } from '../ui/primitives';
 
 /**
@@ -35,7 +36,10 @@ import { Pill, Txt } from '../ui/primitives';
  */
 export function RevokedAccountScreen() {
   const { t, p } = useApp();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
+  // The team's stop (review of #883) is not the person's to lift: no way back
+  // is offered, and the line says who stopped it and to contact us.
+  const byOperator = useSyncExternalStore(onRevokedChange, revokedAccountByOperator);
   const { phase, start } = useExportMyData();
   const [deleting, setDeleting] = useState(false);
   // No header or tab bar here to hold the edges, so the insets go in the
@@ -54,7 +58,13 @@ export function RevokedAccountScreen() {
     setResume('resuming');
     try {
       await resumeAccount();
-    } catch {
+    } catch (error) {
+      // The server says the team stopped it: the way back goes, the line says so.
+      if (error instanceof ForbiddenError && error.reason === 'operator_revoked' && user) {
+        setResume('idle');
+        markRevokedByOperator(user.uid);
+        return;
+      }
       // A deleted account is answered by the client's own 403 handling (the
       // receipt gate); anything else is said here, and the button is back.
       setResume('failed');
@@ -79,9 +89,9 @@ export function RevokedAccountScreen() {
           justifyContent: 'center',
         }}
       >
-        <Txt role="page" size={22} weight={700} lh={1.5}>{t.revokedAccountLine}</Txt>
+        <Txt role="page" size={22} weight={700} lh={1.5}>{byOperator ? t.revokedAccountOperatorLine : t.revokedAccountLine}</Txt>
 
-        <View style={{ gap: 8, marginTop: 8 }}>
+        {byOperator ? null : <View style={{ gap: 8, marginTop: 8 }}>
           <Txt size={14} color={p.mu} lh={1.5}>{t.revokedAccountResumeBody}</Txt>
           <Pill
             label={t.revokedAccountResume}
@@ -99,7 +109,7 @@ export function RevokedAccountScreen() {
               </Txt>
             )}
           </LiveRegion>
-        </View>
+        </View>}
 
         <View style={{ gap: 8, marginTop: 8 }}>
           <Pill
