@@ -4,7 +4,7 @@ import {
   type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextProps, type TextStyle, type ViewStyle,
 } from 'react-native';
 import { useApp } from '../state/AppContext';
-import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
+import { family, LINE_HEIGHT, scriptOfText, type Weight } from '../theme/fonts';
 import { cardShadow, typography, type Palette, type TextRole } from '../theme/tokens';
 import { useTextScale } from '../theme/textScale';
 import { useReducedMotion } from './motion';
@@ -197,7 +197,12 @@ export function Txt({
   // Hebrew fact in the Arabic app is set in Noto Sans Hebrew (Noto Kufi has
   // no Hebrew), an Arabic one in the Hebrew app in Noto Kufi.
   const ownScript = dir === 'auto' && text !== null ? firstStrongScript(text) : null;
-  const runScript = latin ? 'latin' : ownScript ?? script;
+  // `latin` is for digits and Latin labels. Words in another script stay in
+  // their own face: a time slot that says «بدون وقت» instead of «07:00» was
+  // drawn in a fallback face, smaller and unlike the Arabic around it
+  // (simulator 2026-11-20, sim-1120 G) — Plus Jakarta Sans has no Arabic.
+  const latinFace = latin === true && (text === null || scriptOfText(text, 'latin') === 'latin');
+  const runScript = latinFace ? 'latin' : ownScript ?? script;
   const textAlign = textAlignment(effectiveAlign, rtl, Platform.OS);
   // RN 0.86 scales BOTH fontSize and lineHeight natively (iOS:
   // RCTAttributedTextUtils; Android: TextAttributes.effectiveLineHeight).
