@@ -747,6 +747,8 @@ async function settledAfterRace(participantId: string) {
 export interface ResumeRevokedAccountOptions {
   /** Test seam: runs after the lock was read, before anything is written. */
   readonly afterRead?: () => Promise<void>;
+  /** Test seam: runs after suggestions were declined, before learning is. */
+  readonly beforeLearning?: () => Promise<void>;
 }
 
 /**
@@ -793,6 +795,7 @@ export async function resumeRevokedAccount(participantId: string, options: Resum
     state: 'declined', version: RECOMMENDATION_CONSENT_VERSION, at: when,
   }, stillLocked);
   if (!declined) return settledAfterRace(participantId);
+  await options.beforeLearning?.();
   try {
     await setPersonalizationConsent(participantId, {
       state: 'declined', version: PERSONALIZATION_CONSENT_VERSION, at: when,
