@@ -84,6 +84,8 @@ function refusal(error: GoalPlanRefusedError, t: Strings): PlanFailure {
     case 'offline': return { reason, message: t.xPlanFailOffline, recoveries: ['when_online'] };
     case 'goal_too_vague':
       return { reason, message: t.xPlanFailVague, ...(detail.question ? { question: detail.question } : {}), recoveries: ['answer', 'template'] };
+    // The same words come back in the answer field to shorten (`rephrase`).
+    case 'goal_too_long': return { reason, message: t.xPlanFailTooLong, recoveries: ['rephrase'] };
     case 'not_a_goal':
       return detail.classification === 'thought'
         ? { reason, message: t.xPlanFailThought, recoveries: ['thoughts'] }

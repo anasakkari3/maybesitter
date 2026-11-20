@@ -14,6 +14,7 @@ import {
 } from '../../lib/storage/index.ts';
 import { getStorage } from '../../lib/storage/index.ts';
 import { acceptGoalStatement, isPlanImperative, readGoalPlan } from '../../lib/services/mobile/goalPlanService.ts';
+import { readOwnedMemory } from '../../lib/services/mobile/memoryService.ts';
 import {
   REFERENCE,
   USER,
@@ -126,12 +127,6 @@ test('QA v3 V3-F22-04: a goal statement far past what the app can send is refuse
     assert.equal(refused.body.reason, 'goal_too_long');
     assert.equal(JSON.stringify(refused.body).includes(huge), false, 'the refusal must not echo the text');
 
-    // The app's longest path: a 2000-character statement, a newline and a
-    // 2000-character answer to the "too vague" question.
-    const longest = `${'أ'.repeat(2000)}\n${'ب'.repeat(2000)}`;
-    const accepted = await call('goals/from-statement/preview', 'POST', {}, { statement: longest, locale: 'ar' });
-    assert.equal(accepted.status, 200, JSON.stringify(accepted.body).slice(0, 200));
-
     // The accept takes the understood text from the request: it is held to the same bound.
     const small = await call('goals/from-statement/preview', 'POST', {}, { statement: 'بدي أرجع أركض', locale: 'ar' });
     const swapped = await call('goals/from-statement/accept', 'POST', {}, {
@@ -139,6 +134,87 @@ test('QA v3 V3-F22-04: a goal statement far past what the app can send is refuse
     });
     assert.equal(swapped.status, 422, JSON.stringify(swapped.body).slice(0, 200));
     assert.equal(swapped.body.reason, 'goal_too_long');
+  }, h);
+});
+
+/**
+ * QA v3 follow-up of #879: the preview took 201 … 4,100 characters and the
+ * accept then answered 500 `internal_error`, because the accepted text is
+ * written whole as the goal's memory, and a memory holds at most 200
+ * characters (`MAX_MEMORY_CONTENT_LENGTH`). The real path: a goal said in the
+ * field, then an answer to the "too vague" question, sent as one statement.
+ */
+async function goalContent(goalId: string): Promise<string> {
+  return (await readOwnedMemory(USER, goalId, { storage: getStorage() })).content;
+}
+
+async function previewAndAccept(statement: string, locale: string, name: string) {
+  const preview = await call('goals/from-statement/preview', 'POST', {}, { statement, locale });
+  if (preview.status !== 200) return { preview, accept: null };
+  const accept = await call('goals/from-statement/accept', 'POST', {}, {
+    summaryId: preview.body.summaryId, revision: preview.body.revision, understood: preview.body.understood, idempotencyKey: key(name),
+  });
+  return { preview, accept };
+}
+
+test('QA v3 goal length: the goal and its answer are kept as one memory, word for word', async () => {
+  const h = await setup({ model: false });
+  await within(async () => {
+    // The app's own composition (PlanFlow `sendAnswer`): the statement, a
+    // newline, the answer. Pinned here because the bound below is about it.
+    const said = `بدي\nأرجع أركض كل يوم الصبح`;
+    const { preview, accept } = await previewAndAccept(said, 'ar', 'joined');
+    assert.equal(preview.status, 200, JSON.stringify(preview.body).slice(0, 200));
+    assert.equal(preview.body.understood.goalText, said);
+    assert.equal(accept?.status, 200, JSON.stringify(accept?.body).slice(0, 200));
+    assert.equal(await goalContent(accept!.body.goalId as string), said, 'the whole text, goal and answer, is the memory');
+  }, h);
+});
+
+test('QA v3 goal length: exactly the memory bound is taken and one more is refused at preview, in every script', async () => {
+  const h = await setup({ model: false });
+  await within(async () => {
+    const cases: [string, string, string][] = [
+      ['ar', 'أ', 'arabic'],
+      ['he', 'מ', 'hebrew'],
+      // Two UTF-16 units each: counted as one, as the memory counts it.
+      ['en', '🎯', 'emoji'],
+    ];
+    for (const [locale, unit, name] of cases) {
+      const atBound = unit.repeat(200);
+      const taken = await previewAndAccept(`  ${atBound}  `, locale, `${name}-200`);
+      assert.equal(taken.preview.status, 200, `${name} 200: ${JSON.stringify(taken.preview.body).slice(0, 200)}`);
+      assert.equal(taken.accept?.status, 200, `${name} 200 accept: ${JSON.stringify(taken.accept?.body).slice(0, 200)}`);
+      assert.equal(await goalContent(taken.accept!.body.goalId as string), atBound);
+
+      const over = await previewAndAccept(unit.repeat(201), locale, `${name}-201`);
+      assert.equal(over.preview.status, 422, `${name} 201: ${JSON.stringify(over.preview.body).slice(0, 200)}`);
+      assert.equal(over.preview.body.reason, 'goal_too_long');
+      assert.equal(over.preview.body.maxCharacters, 200);
+      assert.equal(over.accept, null);
+    }
+  }, h);
+});
+
+test('QA v3 goal length: a goal plus a long answer is refused with a reason, never a 500', async () => {
+  const h = await setup({ model: false });
+  await within(async () => {
+    // The field's 200 characters and an answer: what reached 500 before.
+    const said = `${'أ'.repeat(150)}\n${'ب'.repeat(60)}`;
+    const refused = await call('goals/from-statement/preview', 'POST', {}, { statement: said, locale: 'ar' });
+    assert.equal(refused.status, 422, JSON.stringify(refused.body).slice(0, 200));
+    assert.equal(refused.body.reason, 'goal_too_long');
+    assert.equal(JSON.stringify(refused.body).includes('أأأ'), false, 'the refusal must not echo the text');
+
+    // An accept carrying a longer text than its preview is held to the same bound.
+    const small = await call('goals/from-statement/preview', 'POST', {}, { statement: 'بدي أرجع أركض', locale: 'ar' });
+    const swapped = await call('goals/from-statement/accept', 'POST', {}, {
+      summaryId: small.body.summaryId, revision: small.body.revision, understood: { goalText: 'ب'.repeat(201) }, idempotencyKey: key('accept-201'),
+    });
+    assert.equal(swapped.status, 422, JSON.stringify(swapped.body).slice(0, 200));
+    assert.equal(swapped.body.reason, 'goal_too_long');
+    const goals = (await getStorage().list<Record<string, unknown>>(userCol(USER, MEMORY))).filter((row) => row.data.kind === 'goal');
+    assert.equal(goals.length, 1, 'only the seeded goal: nothing was half-written');
   }, h);
 });
 

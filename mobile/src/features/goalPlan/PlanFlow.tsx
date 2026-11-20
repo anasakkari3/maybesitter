@@ -505,7 +505,7 @@ function TimesStep({ flow, times, plan }: { flow: Flow; times: GoalPlanTimes; pl
     {allOpen ? <AllTimesSheet busy={busy} onApply={(preference) => { setAllOpen(false); setChanging(null); flow.batch(preference); }} /> : null}
     <LiveRegion>
       {unplacedTitles.length > 0 ? <Txt role="supporting" color={p.wm} testID="plan-times-unplaced">
-        {fill(t.yUnplaced, { titles: unplacedTitles.map((title) => isolateAuto(isolateQuoted(title))).join(lang === 'en' ? ', ' : '، ') })}
+        {fill(t.yUnplaced, { titles: unplacedTitles.map((title) => isolateAuto(isolateQuoted(title))).join(chipSeparator(lang)) })}
       </Txt> : null}
     </LiveRegion>
     {times.steps.map(step => {
