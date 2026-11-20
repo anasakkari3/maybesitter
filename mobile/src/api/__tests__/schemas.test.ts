@@ -471,6 +471,8 @@ const CASES: [string, z.ZodType][] = [
   // M5b-1: the probe, the paragraph, and the optional fields on plan / readiness / next step.
   ['capabilities.m5b', m5bCapabilitiesSchema],
   ['memory.summary', memorySummaryResponseSchema],
+  // Staging 2026-11-20: the minute cap answers with its reason.
+  ['memory.summary.busy', memorySummaryResponseSchema],
   ['plan.m5b', planResponseSchema],
   ['readiness.m5b', readinessResponseSchema],
   ['next-step.m5b', nextStepResponseSchema],

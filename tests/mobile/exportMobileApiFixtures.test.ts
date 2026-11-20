@@ -265,6 +265,7 @@ import {
   begin as beginM5b,
   call as callM5b,
   checkInOk as checkInM5b,
+  currentStorage as m5bStorage,
   end as endM5b,
   grantRecommendations as grantM5bRecommendations,
   plusMinutes as plusM5bMinutes,
@@ -280,6 +281,7 @@ import {
 import { commitmentBaselineFingerprint } from '../../lib/intelligence/autoAdds.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { deleteMemory } from '../../lib/services/mobile/memoryService.ts';
+import { reserveCall as reserveM5bCall } from '../../lib/llm/usageGuard.ts';
 import {
   NOW as M5B2A_NOW,
   TODAY as M5B2A_TODAY,
@@ -4019,6 +4021,15 @@ test('exports the M5b fixtures from the real handlers', async () => {
       kind: 'due_by', dueAt: plusM5bMinutes(new Date().toISOString(), 480), endAt: plusM5bMinutes(new Date().toISOString(), 510), allDay: false,
     });
     await recordM4b('next-step.m5b', 200, await callM5b(uid, 'recommendations/next-step', 'GET', { query: { locale: 'en', timezone: 'Asia/Jerusalem' } }));
+
+    // Staging 2026-11-20: a refusal the person can act on says which one.
+    // Last, so nothing above runs under the spent cap: the minute cap spent
+    // by other features, asked in Hebrew so the kept English paragraph is not
+    // the answer.
+    for (let index = 0; index < 8; index += 1) await reserveM5bCall(uid, 'capture_extraction', { storage: m5bStorage() as any });
+    await recordM4b('memory.summary.busy', 200, await callM5b(uid, 'memory/summary', 'GET', { query: { language: 'he' } }), (body) => {
+      assert.deepEqual(body.summary, { status: 'unavailable', reason: 'busy_now' });
+    });
   } finally {
     endM5b();
   }

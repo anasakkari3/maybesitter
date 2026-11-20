@@ -50,7 +50,7 @@ describe('the summary schema', () => {
 
   it('has every reason line in all three languages', () => {
     for (const [, key] of REASONS) {
-      for (const locale of [en, ar, he] as Array<Record<string, string>>) {
+      for (const locale of [en, ar, he] as unknown as Array<Record<string, string>>) {
         expect(typeof locale[key]).toBe('string');
         expect(locale[key]!.length).toBeGreaterThan(0);
       }
@@ -64,7 +64,7 @@ describe('an unavailable summary with a reason', () => {
       harness = await prepare('en', initialState({ summary: { status: 'unavailable', reason } }));
       await showKnows(harness);
       await waitFor(() => expect(screen.queryByTestId('memory-summary-unavailable')).not.toBeNull());
-      expect(screen.getByTestId('memory-summary-unavailable').props.children).toBe((en as Record<string, string>)[key]);
+      expect(screen.getByTestId('memory-summary-unavailable').props.children).toBe((en as unknown as Record<string, string>)[key]);
       expect(screen.queryByTestId('memory-item-memory-1')).not.toBeNull();
       expect(screen.queryByTestId('memory-summary')).toBeNull();
     });

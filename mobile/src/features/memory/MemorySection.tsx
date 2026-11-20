@@ -122,6 +122,11 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
   const current = summary.status === 'success' && !summary.isFetching && !memory.isError;
   const ready = summaryOn && current && summary.data.status === 'ready' ? summary.data : null;
   const loading = summaryOn && !memory.isError && (!disclosed || summary.isFetching || summary.isPending) && summary.status !== 'error';
+  // A refusal the person can act on is said in one line above the rows
+  // (staging 2026-11-20: the minute cap looked like nothing at all). With no
+  // reason there is nothing to act on, and the card stays as it was.
+  const reason = summaryOn && current && summary.data.status === 'unavailable' ? summary.data.reason : undefined;
+  const unavailableLine = reason ? t[SUMMARY_UNAVAILABLE_LINE[reason]] : null;
 
   return (
     <Card pad={0} style={{ overflow: 'hidden' }} testID="memory-section">
@@ -156,6 +161,10 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
       ) : loading ? (
         <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
           <Txt size={14} color={p.mu} testID="memory-summary-loading">{t.m5bSummaryLoading}</Txt>
+        </View>
+      ) : unavailableLine ? (
+        <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
+          <Txt size={14} color={p.mu} testID="memory-summary-unavailable">{isolateLatinRuns(unavailableLine)}</Txt>
         </View>
       ) : null}
 
@@ -396,6 +405,14 @@ function MemoryRow({
 }
 
 const summaryLanguage = (lang: string): 'ar' | 'en' | 'he' => (lang === 'ar' || lang === 'he' ? lang : 'en');
+
+/** The line for each reason the summary route gives (lib/services/mobile/memorySummary.ts). */
+const SUMMARY_UNAVAILABLE_LINE = {
+  busy_now: 'm5bSummaryBusyNow',
+  daily_cap: 'm5bSummaryDailyCap',
+  monthly_cap: 'm5bSummaryMonthlyCap',
+  not_included: 'm5bSummaryNotIncluded',
+} as const;
 
 /**
  * Where the paragraph comes from, said before it is asked for and kept while
