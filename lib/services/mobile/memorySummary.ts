@@ -7,6 +7,7 @@ import {
 import { LANGUAGE_RULE } from '../../intelligence/proposalEngine';
 import { isCanonicalRoutineFact } from '../../memory/routineFacts';
 import { consentGatedProvider } from '../../llm/consentGatedProvider';
+import { logLlmCall, uidHash, type LlmOutcome } from '../../llm/llmLog';
 import { aiDisabled, commitUsage, reserveCall } from '../../llm/usageGuard';
 import { createHash } from 'node:crypto';
 import { getStorage } from '../../storage';
@@ -17,7 +18,7 @@ import {
   runtimeMemoryRecordPath,
   runtimeMemoryRecordRetrievable,
 } from '../../runtimeMemory/runtimeMemoryStore';
-import { withSingleRetry, type LlmProvider } from '../../../src/extraction/llm';
+import { withSingleRetry, type LlmProvider, type LlmProviderName } from '../../../src/extraction/llm';
 import { listMemory } from './memoryService';
 
 export const MEMORY_SUMMARY_ROUTE_BUDGET_MS = 10_000;
@@ -353,13 +354,47 @@ function rowNamesArabicDay(day: string, rowWords: readonly string[]): boolean {
   });
 }
 
+/**
+ * The Levantine weekdays a row may name as «كل تلات» / «كل اتنين», with no
+ * «ال». Never the MSA «ثلاث»: «بروح كل ثلاث» is "every three" with what is
+ * counted left out (review of #885).
+ */
+const ROW_EVERY_DAY: Readonly<Record<string, RegExp>> = {
+  monday: /^[وف]?(?:اثنين|اتنين)$/,
+  tuesday: /^[وف]?تلات$/,
+};
+/** Words of the time of day that may follow «كل تلات» without being what is counted. Normalized spellings. */
+const DAY_FOLLOWERS = new Set([
+  'الصبح', 'الصباح', 'بالصبح', 'الصبحيه', 'الضهر', 'الظهر', 'بالضهر', 'بالظهر', 'العصر', 'بالعصر',
+  'المسا', 'المساء', 'بالمسا', 'بالمساء', 'الليل', 'بالليل', 'العشيه', 'بعد', 'قبل', 'الساعه', 'عالساعه',
+]);
+const CLAUSE_BREAK = /[،,.؛;!?؟:\n()«»"]+/;
+
+/**
+ * Whether a row names the day as «كل تلات/كل اتنين» (staging 2026-11-20:
+ * «يوم التلات» said back for a row's «كل تلات» was refused). Only where
+ * nothing counted can follow: the end of the row or of its clause, or a word
+ * of the time of day. Any other word after it may be what is counted («كل
+ * تلات وجبات», every three meals), so the row names no day there (review of
+ * #885: a closed list of units let «كل ثلاث حبات» name Tuesday).
+ */
+function rowNamesEveryDay(day: string, text: string): boolean {
+  const pattern = ROW_EVERY_DAY[day];
+  if (!pattern) return false;
+  return normalize(text).split(CLAUSE_BREAK).some((clause) => {
+    const clauseWords = clause.match(WORD) ?? [];
+    return clauseWords.some((word, index) => pattern.test(word) && clauseWords[index - 1] === 'كل'
+      && (clauseWords[index + 1] === undefined || DAY_FOLLOWERS.has(clauseWords[index + 1]!)));
+  });
+}
+
 function citedNamesDay(day: string, cited: readonly MemorySummaryInputRow[]): boolean {
   const names = WEEKDAY_NAMES[day] ?? [];
   return cited.some((row) => {
     const rowWords = words(row.text);
     const text = rowWords.join(' ');
     return names.some((name) => ` ${text} `.includes(` ${name} `) || text.split(' ').some((word) => word.endsWith(name) && name.startsWith('ال')))
-      || rowNamesArabicDay(day, rowWords);
+      || rowNamesArabicDay(day, rowWords) || rowNamesEveryDay(day, row.text);
   });
 }
 
@@ -624,14 +659,74 @@ async function keepSummary(
   }
 }
 
+/**
+ * Why there is no paragraph, when the person can do something about it
+ * (staging 2026-11-20: a bare `unavailable` was the minute cap, and nobody
+ * could tell). Wait a minute, wait for tomorrow, wait for next month, or the
+ * add-on is not on. Every other exit has no reason: nothing to act on.
+ */
+export type MemorySummaryUnavailableReason = 'busy_now' | 'daily_cap' | 'monthly_cap' | 'not_included';
+
 export type MemorySummaryResult =
-  | { readonly status: 'empty' | 'unavailable' }
+  | { readonly status: 'empty' }
+  | { readonly status: 'unavailable'; readonly reason?: MemorySummaryUnavailableReason }
   | { readonly status: 'ready'; readonly language: MemorySummaryLanguage; readonly sentences: readonly { text: string; memoryIds: readonly string[] }[]; readonly coveredCount: number; readonly totalCount: number };
 
+/** The exits the person can act on: a refused reservation (`ReservationOutcome`) or add-on check (`checkProviderFeature`). */
+const REASON_FOR_EXIT: Readonly<Record<string, MemorySummaryUnavailableReason>> = Object.freeze({
+  user_minute_cap: 'busy_now',
+  user_cap: 'daily_cap',
+  user_token_cap: 'daily_cap',
+  global_cap: 'daily_cap',
+  feature_budget: 'monthly_cap',
+  'cost_cap:user_monthly': 'monthly_cap',
+  feature_locked: 'not_included',
+});
+
+/** The reason an exit code gives the person, or none. */
+export function memorySummaryUnavailableReasonFor(code: string): MemorySummaryUnavailableReason | undefined {
+  return Object.hasOwn(REASON_FOR_EXIT, code) ? REASON_FOR_EXIT[code] : undefined;
+}
+
+/**
+ * One content-free line per `unavailable`, naming its exit as a fixed code
+ * (`fallbackReason`), and one per answered call: no row, no prompt, no
+ * answer, no raw uid (llmLog's rule). An exit before any model call is
+ * logged as `cost_cap`, so the call metric (`ai-cost-alerts.sh` counts
+ * `llm_call` lines whose outcome is not `cost_cap`) never counts it.
+ */
+function logSummary(
+  uid: string,
+  provider: LlmProviderName,
+  outcome: LlmOutcome,
+  fallbackReason: string | null,
+  call: { model: string; latencyMs: number; promptTokens: number; outputTokens: number } | null = null,
+): void {
+  logLlmCall({
+    event: 'llm_call',
+    purpose: 'memory_summary',
+    provider,
+    model: call?.model ?? process.env.MAYBESITTER_LLM_MODEL ?? '',
+    location: process.env.MAYBESITTER_VERTEX_LOCATION ?? '',
+    uidHash: uidHash(uid),
+    latencyMs: call?.latencyMs ?? 0,
+    promptTokens: call?.promptTokens ?? 0,
+    outputTokens: call?.outputTokens ?? 0,
+    outcome,
+    ...(fallbackReason === null ? {} : { fallbackReason }),
+  });
+}
+
+function refused(uid: string, provider: LlmProviderName, code: string): MemorySummaryResult {
+  logSummary(uid, provider, 'cost_cap', code);
+  const reason = memorySummaryUnavailableReasonFor(code);
+  return reason === undefined ? { status: 'unavailable' } : { status: 'unavailable', reason };
+}
+
 export async function buildMemorySummary(input: { uid: string; language: MemorySummaryLanguage; signal: AbortSignal; abort: () => void; startedAt: number }): Promise<MemorySummaryResult> {
-  if (aiDisabled()) return { status: 'unavailable' };
+  if (aiDisabled()) return refused(input.uid, 'none', 'ai_disabled');
   const provider = providerFor(input.uid);
-  if (provider.name === 'none') return { status: 'unavailable' };
+  if (provider.name === 'none') return refused(input.uid, 'none', 'provider_none');
   // Before the rows are read, so a delete-all that starts after this cannot
   // be outlived by the paragraph kept below (QA CA8.7).
   let guard: Awaited<ReturnType<typeof personalizationWriteGuard>> | null = null;
@@ -654,23 +749,24 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
   // account may have its words read by a model (review of QA CA8.7). Always
   // granted since the owner's decision of 2026-09-30, so this is the seam a
   // future withdrawal would close, not a refusal any account meets today.
-  if ((await getAiConsent(input.uid)) !== 'granted') return { status: 'unavailable' };
+  if ((await getAiConsent(input.uid)) !== 'granted') return refused(input.uid, provider.name, 'ai_consent');
   const cached = cachedResult(await getStorage().get(summaryPath(input.uid, input.language)).catch(() => null), fingerprint, input.language);
   if (cached) return cached;
   const remaining = MEMORY_SUMMARY_ROUTE_BUDGET_MS - (Date.now() - input.startedAt);
-  if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return { status: 'unavailable' };
+  if (remaining < MINIMUM_ATTEMPT_BUDGET_MS || input.signal.aborted) return refused(input.uid, provider.name, 'route_budget');
   const prompt = memorySummaryPrompt(rows, input.language);
   // The memory add-on's monthly budget (lib/features), before the daily slot.
   const feature = await checkProviderFeature(input.uid, 'memory_summary', {}, new Date(),
     worstCaseCallNanoUsd(prompt.length, 2048));
-  if (feature.refusal) return { status: 'unavailable' };
+  if (feature.refusal) return refused(input.uid, provider.name, feature.refusal);
   const reservation = await reserveCall(input.uid, 'memory_summary', { storage: getStorage() });
   if (reservation !== 'ok') {
     await releaseProviderFeature(input.uid, feature, {}, new Date());
-    return { status: 'unavailable' };
+    return refused(input.uid, provider.name, reservation);
   }
   const timeoutMs = Math.min(MEMORY_SUMMARY_ATTEMPT_TIMEOUT_MS, remaining);
   const attemptTimer = setTimeout(input.abort, timeoutMs);
+  const calledAt = Date.now();
   let settled = false;
   try {
     const response = await provider.generateStructured({
@@ -682,17 +778,20 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
     // The day's call and tokens still count: they are the spend brake on a
     // client that asks again and again, not the person's allowance.
     await commitUsage(input.uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens }, { storage: getStorage() });
-    const sentences = validateMemorySummary(parseJson(response.text), rows, input.language);
+    const parsed = parseJson(response.text);
+    const sentences = validateMemorySummary(parsed, rows, input.language);
     if (!sentences) {
       // An answer that cannot be shown is not charged to the memory add-on
       // (QA v3 V3-F26-01: its usage rose 0 → 6 % on `unavailable`): the hold
       // is given back and nothing is recorded.
       settled = true;
       await releaseProviderFeature(input.uid, feature, {}, new Date());
+      logSummary(input.uid, provider.name, 'schema_invalid', parsed === null ? 'unparseable' : 'validator_refused', response);
       return { status: 'unavailable' };
     }
     await chargeProviderFeature(input.uid, feature, response, {}, new Date());
     settled = true;
+    logSummary(input.uid, provider.name, 'ok', null, response);
     const ids = new Map(rows.map((row) => [row.ref, row.id]));
     const ready = {
       status: 'ready' as const, language: input.language,
@@ -707,8 +806,11 @@ export async function buildMemorySummary(input: { uid: string; language: MemoryS
     }
     return ready;
   } catch (error) {
+    // The error's own message can quote the request: only a fixed code is logged.
     void error;
     if (!settled) await releaseProviderFeature(input.uid, feature, {}, new Date());
+    logSummary(input.uid, provider.name, 'unavailable', input.signal.aborted ? 'timeout' : 'provider_error',
+      { model: process.env.MAYBESITTER_LLM_MODEL ?? '', latencyMs: Date.now() - calledAt, promptTokens: 0, outputTokens: 0 });
     return { status: 'unavailable' };
   } finally {
     clearTimeout(attemptTimer);

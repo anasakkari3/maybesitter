@@ -165,6 +165,54 @@ test('«كل ثلاث ساعات» holds a 3; «كل تلات» with no unit aft
   assert.equal(one('عندك دوام 3 أيام.', 'كل تلات عندي دوام'), null);
 });
 
+// Staging 2026-11-20 (qa-v3-recheck1120): a row's «كل تلات» with no counted
+// unit after it is already read as a day (it holds no 3), but it did not count
+// as naming Tuesday, so the everyday way to say it back — «يوم التلات»,
+// «أيام التلات», Hebrew «ביום שלישי» — was refused as an invented weekday.
+test('a row\'s «كل تلات/كل اتنين» with no unit names that day; with a unit, or without «كل», it names none', () => {
+  const lectures = 'عندي 3 محاضرات كل تلات';
+  assert.notEqual(one('عندك 3 محاضرات يوم التلات.', lectures), null);
+  assert.notEqual(one('أيام التلات عندك 3 محاضرات.', lectures), null);
+  assert.notEqual(one('عندك 3 محاضرات كل يوم التلات.', lectures), null);
+  assert.notEqual(one('יש לך 3 הרצאות ביום שלישי.', lectures, 'he'), null);
+  assert.notEqual(one('بتروح عالجيم يوم الاتنين.', 'بروح عالجيم كل اتنين'), null);
+  // Another day is still invented, and the row's 3 is still no Tuesday's 3.
+  assert.equal(one('عندك 3 محاضرات يوم الاتنين.', lectures), null);
+  assert.equal(one('יש לך 3 הרצאות ביום שני.', lectures, 'he'), null);
+  assert.equal(one('عندك 4 محاضرات يوم التلات.', lectures), null);
+  // With a counted unit after it, «كل تلات ساعات» is every three hours: no Tuesday.
+  assert.equal(one('بتاخد الدوا يوم التلات.', 'باخد الدوا كل تلات ساعات'), null);
+  assert.equal(one('بتاخد الدوا يوم التلات.', 'باخد الدوا كل ثلاث ساعات'), null);
+  assert.equal(one('אתה לוקח תרופה ביום שלישי.', 'باخد الدوا كل ثلاث ساعات', 'he'), null);
+  // Without «كل» a bare «تلات» is a number, not a day (unchanged).
+  assert.equal(one('عندك ولاد يوم التلات.', 'عندي تلات ولاد'), null);
+  // «التلات» with the article and no day word is still "the three".
+  assert.equal(one('عندك التلات محاضرات.', lectures), null);
+});
+
+// Review of #885: «كل تلات» names Tuesday only when nothing counted follows it
+// — the end of the row or its clause, or a word of time («الصبح»,
+// «بالليل», «بعد»). Any other word after it may be what is counted («كل
+// ثلاث وجبات», every three meals): no day, and the sentence's Tuesday is
+// refused. The MSA «ثلاث» alone is a number, never Tuesday.
+test('«كل تلات» names Tuesday only before nothing, a clause end or a word of time; never before a counted noun', () => {
+  const tuesday = 'بتاخد الدوا يوم التلات.';
+  for (const counted of ['وجبات', 'حبات', 'جلسات', 'جرعات', 'حصص', 'مرضى']) {
+    assert.equal(one(tuesday, `باخد دوا كل ثلاث ${counted}`), null, `«كل ثلاث ${counted}» named Tuesday`);
+    assert.equal(one(tuesday, `باخد دوا كل تلات ${counted}`), null, `«كل تلات ${counted}» named Tuesday`);
+  }
+  assert.equal(one('بتروح يوم التلات.', 'بروح كل ثلاث'), null);
+  // Without «كل» a bare «تلات» at a clause end is a number: «ولادي تلات», «الساعة تلات».
+  assert.equal(one('عندك ولاد يوم التلات.', 'ولادي تلات'), null);
+  assert.equal(one('بتصحى يوم التلات.', 'بصحى الساعة تلات، وبنام بكير'), null);
+  // Nothing after it, a clause end, or a word of time: Tuesday.
+  assert.notEqual(one('بتروح عالجيم يوم التلات.', 'بروح عالجيم كل تلات'), null);
+  assert.notEqual(one('بتروح عالجيم يوم التلات.', 'كل تلات، بروح عالجيم'), null);
+  assert.notEqual(one('بتروح عالجيم يوم التلات الصبح.', 'بروح عالجيم كل تلات الصبح'), null);
+  assert.notEqual(one('بتروح عالجيم يوم التلات بالليل.', 'كل تلات بالليل بروح عالجيم'), null);
+  assert.notEqual(one('بتروح عالجيم يوم الاتنين بعد الشغل.', 'بروح عالجيم كل اتنين بعد الشغل'), null);
+});
+
 // Review of #876 (follow-up): pinned values the review asked for.
 test('«نص» in a row is the everyday word; a third and 3.0004 are matched exactly', () => {
   // «نص» (a text) gives a row no half; copied whole it still passes.

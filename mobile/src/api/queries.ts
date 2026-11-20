@@ -146,6 +146,7 @@ import {
 } from './endpoints/goals';
 import type { GoalConfirmationSelection } from './endpoints/goals';
 import { getMemorySummary } from './endpoints/m5b';
+import type { MemorySummary } from './schemas/m5b';
 import type { GoalProgressPeriod } from './schemas/goals';
 import { createHabit, decideHabitOccurrence, deleteHabit, listHabits, listHabitsToday, setHabitStatus, undoHabitOccurrence } from './endpoints/habits';
 import type { Habit, HabitOccurrenceDecision, HabitOccurrenceRef, NewHabitInput } from './schemas/habits';
@@ -2582,8 +2583,17 @@ export function useMemorySummary(language: 'ar' | 'en' | 'he', enabled: boolean)
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    staleTime: Infinity,
+    // A refusal with a reason (a cap, the add-on off) is not a final answer:
+    // stale at once, so the next mount asks again once its disclosure is on
+    // screen, which costs no model call while the cap holds. A paragraph, or
+    // a bare unavailable, is kept until the memory changes (M5B1-016;
+    // review of #885).
+    staleTime: (query) => (refusalWithReason(query.state.data) ? 0 : Infinity),
   });
+}
+
+function refusalWithReason(summary: MemorySummary | undefined): boolean {
+  return summary?.status === 'unavailable' && summary.reason !== undefined;
 }
 
 /** A memory write's input, with the correction it registered when it was called. */

@@ -36,7 +36,13 @@ export const memorySummarySchema = z.discriminatedUnion('status', [
     totalCount: z.number().int().nonnegative(),
   }).strict(),
   z.object({ status: z.literal('empty') }).strict(),
-  z.object({ status: z.literal('unavailable') }).strict(),
+  // Why there is no paragraph, when the person can act on it (staging
+  // 2026-11-20): wait a minute, wait for tomorrow, wait for next month, or the
+  // add-on is not on. Absent for every other refusal.
+  z.object({
+    status: z.literal('unavailable'),
+    reason: z.enum(['busy_now', 'daily_cap', 'monthly_cap', 'not_included']).optional(),
+  }).strict(),
 ]);
 export type MemorySummary = z.infer<typeof memorySummarySchema>;
 
