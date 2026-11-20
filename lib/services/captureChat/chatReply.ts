@@ -566,8 +566,9 @@ const mentionsTitle = (sentence: string, title: string): boolean => {
  * (`clashSentence`), so it is not lost with the wrong hour beside it.
  *
  * A question is checked only when it restates the list — it opens «يعني»,
- * "so", «כלומר», or names a card — and offers nothing (`offerSentences`), and
- * never while an item is still being asked about: the ask is the question.
+ * "so", «כלומר», or names a card — and offers nothing (`offerSentences`);
+ * never the ask itself for what an item still lacks («أي ساعة بدك …، 9 ولا
+ * 10؟»), whose hours are choices, not the list.
  */
 function withCardClocks(text: string, context: TemplateContext): string {
   const grounds = context.grounds;
@@ -599,8 +600,8 @@ function withCardClocks(text: string, context: TemplateContext): string {
   const timed = items.filter((item) => item.resolvedTime && !item.needsClarification);
   const asking = itemAskingForTime(context.proposal);
   const checked = (sentence: string): boolean => !isQuestion(sentence)
-    || (!asking && offerSentences(sentence).length === 0
-      && (CONFIRMS.test(sentence) || timed.some((item) => mentionsTitle(sentence, item.title))));
+    || (!(asking && asksForMissing(sentence, asking)) && offerSentences(sentence).length === 0
+      && (CONFIRMS.test(sentence) || items.some((item) => mentionsTitle(sentence, item.title))));
   const said = new Set<ProposalItemLike>();
   const clashes: string[] = [];
   let replacedAt = -1;
